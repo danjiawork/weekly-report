@@ -36,6 +36,21 @@ yarn-error.log*
 # vercel
 .vercel
 
+# claude code local settings (machine-specific paths)
+.claude/settings.local.json
+
+# claude code agent instructions (not relevant to human readers)
+AGENTS.md
+
+# product spec (internal planning doc, keep as local reference)
+SPEC.md
+
+# unimplemented stubs (planned for future milestones)
+src/lib/db/
+src/lib/claude/types.ts
+src/app/history/
+src/types/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
