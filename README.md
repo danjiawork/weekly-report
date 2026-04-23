@@ -12,12 +12,12 @@
 
 <!--
 Full automation flow (for reference):
-  /loop cron → /weekly-report Skill → /api/generate-report-cli
-             → Anthropic SDK (streaming) → GitHub Gist upload
-             → weekly-report-slack MCP Server → Slack DM
+  launchd → run-weekly-report.sh → /api/generate-report-cli
+          → Anthropic SDK (streaming) → GitHub Gist upload
+          → weekly-report-slack MCP Server → Slack DM
 
 Pre-commit: husky runs `npm run lint` + `npm run typecheck` on every commit
-AI provider: swappable via ANTHROPIC_BASE_URL (OpenRouter, Ollama, etc.)
+AI provider: swappable via ANTHROPIC_BASE_URL (OpenRouter, LiteLLM proxy, etc.)
 -->
 
 ```mermaid
@@ -33,7 +33,7 @@ graph LR
     end
 
     subgraph AILayer["AI — provider-agnostic"]
-        MODEL["Any OpenAI-compatible API\nClaude · GPT · Gemini · Llama"]
+        MODEL["Anthropic-compatible API\nClaude · GPT · Gemini (via OpenRouter)"]
     end
 
     subgraph Output["Output"]
@@ -50,41 +50,18 @@ graph LR
     GIST --> SLACK
 ```
 
-**Key technical points:**
-
-- **Streaming AI response** — `ReadableStream` with `Transfer-Encoding: chunked`, tokens render in real-time
-- **Provider-agnostic AI** — swap Claude for GPT, Gemini, or a local model via `ANTHROPIC_BASE_URL`
-- **Dual API surface** — `/api/generate-report` uses OAuth session (browser); `/api/generate-report-cli` uses `CLI_SECRET` header (automation/cron/Skill)
-- **MCP Server** — custom `weekly-report-slack` server posts reports to Slack DM via Claude Code
-- **Claude Code Skill** — `/weekly-report` orchestrates the full pipeline in one command
-- **Pre-commit CI** — Husky runs ESLint + `tsc --noEmit` before every commit
-
----
-
-## Features
+## Key Features
 
 | Feature | Description |
 | --- | --- |
 | GitHub integration | PRs, commits, code reviews via OAuth — no token setup needed |
 | Jira integration | Via API token or manual CSV upload |
 | AI summarization | Personal View (activity log) + Manager View (impact summary) |
-| Any AI model | Swap Claude for GPT-4, local models, or any OpenAI-compatible API |
 | GitHub Gist export | Generates a secret shareable link after each report |
 | Claude Code Skill | `/weekly-report` — one command generates and delivers the full report |
 | Slack MCP Server | Posts report to your Slack DM via a local MCP server |
 | Pre-commit hook | ESLint + TypeScript check runs before every commit |
-| Scheduled delivery | `/loop` cron fires the skill on a recurring schedule |
-
----
-
-## Tech Stack
-
-- **Next.js 15** (App Router) + TypeScript
-- **Tailwind CSS** for styling
-- **NextAuth.js** for GitHub OAuth
-- **Anthropic SDK** for AI summarization (supports `ANTHROPIC_BASE_URL` for any provider)
-- **Husky** for pre-commit hooks
-- **Claude Code** for skill + MCP automation
+| Scheduled delivery | macOS launchd fires the pipeline automatically every week |
 
 ---
 
@@ -101,7 +78,7 @@ npm install        # also installs the pre-commit hook via `prepare`
 ### 2. Configure environment variables
 
 ```bash
-cp .env.example .env.local
+cp .env.example .env.local   # then fill in your values
 ```
 
 | Variable | Required | Description |
@@ -110,12 +87,12 @@ cp .env.example .env.local
 | `NEXTAUTH_URL` | Yes | App URL, e.g. `http://localhost:3000` |
 | `GITHUB_CLIENT_ID` | Yes | GitHub OAuth App Client ID |
 | `GITHUB_CLIENT_SECRET` | Yes | GitHub OAuth App Client Secret |
-| `ANTHROPIC_API_KEY` | Yes | API key for your AI provider |
-| `ANTHROPIC_BASE_URL` | Optional | Override endpoint (e.g. OpenRouter: `https://openrouter.ai/api/v1`) |
-| `CLAUDE_MODEL` | Optional | Model ID, default: `claude-sonnet-4-6` |
+| `ANTHROPIC_API_KEY` | Yes | API key for your AI provider (OpenRouter / LiteLLM keys go here too, name is SDK convention) |
+| `ANTHROPIC_BASE_URL` | Optional | Override endpoint (e.g. OpenRouter: `https://openrouter.ai/api/v1`), keep the `ANTHROPIC_` prefix regardless of provider |
+| `AI_MODEL` | Optional | Model ID, default: `claude-sonnet-4-6` |
 | `JIRA_BASE_URL` | Optional | Jira instance URL, e.g. `https://yourorg.atlassian.net` |
 | `JIRA_TOKEN` | Optional | Jira API token |
-| `CLI_SECRET` | Optional | Protects the headless CLI endpoint |
+| `CLI_SECRET` | Optional | Protects the headless CLI endpoint — only needed if exposing the server publicly |
 | `GITHUB_TOKEN` | Optional | GitHub PAT for Gist uploads |
 
 ### 3. Create a GitHub OAuth App
@@ -136,22 +113,28 @@ Open [http://localhost:3000](http://localhost:3000), sign in with GitHub, and ge
 
 ## Using a Different AI Model
 
-The tool uses the Anthropic SDK but accepts any OpenAI-compatible endpoint via `ANTHROPIC_BASE_URL`.
+The tool uses the Anthropic SDK. Any provider that implements the Anthropic Messages API can be used via `ANTHROPIC_BASE_URL`.
 
-### OpenRouter (access GPT-4o, Gemini, etc.)
+### OpenRouter (route to GPT, Gemini, Mistral, and more)
 
 ```env
 ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1
 ANTHROPIC_API_KEY=<your-openrouter-key>
-CLAUDE_MODEL=openai/gpt-4o
+AI_MODEL=openai/gpt-4o
 ```
 
-### Local model via Ollama
+### Local models via LiteLLM proxy
+
+[LiteLLM](https://github.com/BerriAI/litellm) translates Anthropic API calls to Ollama or any local model:
+
+```bash
+litellm --model ollama/llama3 --port 4000
+```
 
 ```env
-ANTHROPIC_BASE_URL=http://localhost:11434/v1
-ANTHROPIC_API_KEY=ollama
-CLAUDE_MODEL=llama3
+ANTHROPIC_BASE_URL=http://localhost:4000
+ANTHROPIC_API_KEY=dummy
+AI_MODEL=ollama/llama3
 ```
 
 ---
@@ -162,12 +145,14 @@ This project ships with a **Claude Code Skill** for one-command report generatio
 
 ### Install the skill
 
+The skill file is already at `.claude/skills/weekly-report/SKILL.md` and works automatically when Claude Code is opened in this project directory.
+
+To use it from any directory, copy it to your global skills folder:
+
 ```bash
 mkdir -p ~/.claude/skills/weekly-report
 cp .claude/skills/weekly-report/SKILL.md ~/.claude/skills/weekly-report/SKILL.md
 ```
-
-Edit the `Project directory` line in the copied `SKILL.md` to match your local clone path.
 
 ### Use it
 
@@ -192,7 +177,7 @@ Post reports to your Slack DM using the bundled MCP server.
    - Install to workspace, copy the **Bot Token** (`xoxb-...`)
    - Find your **Slack User ID** (profile → three dots → Copy member ID)
 
-1. Install the MCP server
+2. Install the MCP server
 
 ```bash
 mkdir -p ~/.claude/mcp-servers/weekly-report-slack
@@ -201,58 +186,41 @@ cd ~/.claude/mcp-servers/weekly-report-slack
 npm init -y && npm install @modelcontextprotocol/sdk
 ```
 
-1. Register in `~/.claude/settings.json`
+3. Register the MCP server
 
-```json
-{
-  "mcpServers": {
-    "weekly-report-slack": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["~/.claude/mcp-servers/weekly-report-slack/index.js"],
-      "env": {
-        "SLACK_BOT_TOKEN": "xoxb-your-token",
-        "SLACK_USER_ID": "U01YOURSLACKID"
-      }
-    }
-  }
-}
+```bash
+claude mcp add weekly-report-slack \
+  -e SLACK_BOT_TOKEN=xoxb-your-token \
+  -e SLACK_USER_ID=U01YOURSLACKID \
+  -- node ~/.claude/mcp-servers/weekly-report-slack/index.js
 ```
 
 ---
 
-## Scheduled Reports
+## Scheduled Reports (macOS launchd)
 
-Use Claude Code's `/loop` to fire the skill on a recurring schedule:
+The project includes a shell script and launchd plist for fully automated weekly delivery — no terminal needed.
 
-```text
-/loop 0 17 * * 5 /weekly-report
-```
+### Setup
 
-This generates and delivers a report every Friday at 5pm.
+1. Copy the plist to LaunchAgents:
 
-Alternatively, call the headless CLI endpoint directly from any cron scheduler:
+   ```bash
+   cp .claude/scripts/com.weekly-report.plist ~/Library/LaunchAgents/
+   ```
 
-```bash
-curl -X POST http://localhost:3000/api/generate-report-cli \
-  -H "Content-Type: application/json" \
-  -H "x-cli-secret: <CLI_SECRET>" \
-  -d '{"weekStart":"2026-04-20","weekEnd":"2026-04-26"}'
-```
+   Open the copied file and replace the script path with your local clone location. Adjust `Weekday` and `Hour` if needed (default: Friday 14:00).
 
----
+1. Load the agent:
 
-## Pre-commit Hook
+   ```bash
+   launchctl load ~/Library/LaunchAgents/com.weekly-report.plist
+   ```
 
-Husky runs ESLint and TypeScript type checking before every commit. It installs automatically on `npm install` via the `prepare` script.
-
-```bash
-npm run lint       # ESLint
-npm run typecheck  # tsc --noEmit
-```
+On schedule, `.claude/scripts/run-weekly-report.sh` will start the dev server if needed, generate the report, post to Slack, then stop the server. Logs: `/tmp/weekly-report-cron.log`.
 
 ---
 
 ## License
 
-MIT
+[MIT](LICENSE)
