@@ -223,4 +223,4 @@ On schedule, `.claude/scripts/run-weekly-report.sh` will start the dev server if
 
 ## License
 
-MIT
+[MIT](LICENSE)
