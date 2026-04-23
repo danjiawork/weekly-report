@@ -71,8 +71,12 @@ Parse the JSON response:
 - `markdown` — the report text
 - `gistUrl` — the secret Gist URL (may be null if upload failed)
 
-If `gistUrl` is present, skip step 5b and go straight to step 6.
+If `gistUrl` is present, go to step 5a.
 If `gistUrl` is null, fall through to step 5b to save a local HTML file as fallback.
+
+### 5a. Gist upload succeeded
+
+Report the Gist URL to the user and proceed to step 6.
 
 ### 5b. Convert markdown to self-contained HTML (fallback only)
 
