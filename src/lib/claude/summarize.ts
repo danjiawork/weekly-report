@@ -77,7 +77,7 @@ ${jiraSection}
 Generate my weekly report.`;
 
   const stream = await client.messages.stream({
-    model: process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6",
+    model: process.env.AI_MODEL ?? "claude-sonnet-4-6",
     max_tokens: 1500,
     system: [
       {

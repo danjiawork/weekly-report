@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Claude MCP server scripts use CommonJS require()
+    ".claude/**",
   ]),
 ]);
 
